@@ -7,20 +7,20 @@ var move_by : int
 var win_height : int
 var p_height : int
 
-# Called when the node enters the scene tree for the first time.
+@onready var _ball: Node2D = $"../ball"
+@onready var _paddle_speed: float = get_parent().PEDDLE_SPEED
+
 func _ready() -> void:
 	win_height = get_viewport_rect().size.y
 	p_height = $ColorRect.get_size().y
 
 
-# Called every frame. 'delta' is the elapsed time since the previous frame.
 func _process(delta: float) -> void:
-	#move paddle towrads the ball
-	ball_pos = $"../ball".position
+	ball_pos = _ball.position
 	dist = position.y - ball_pos.y
-	
-	if abs(dist) > get_parent().PEDDLE_SPEED * delta:
-		move_by = get_parent().PEDDLE_SPEED * delta * (dist / abs(dist))
+
+	if abs(dist) > _paddle_speed * delta:
+		move_by = _paddle_speed * delta * signf(dist)
 	else:
 		move_by = dist
 		

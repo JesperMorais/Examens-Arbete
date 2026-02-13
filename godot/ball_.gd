@@ -1,37 +1,42 @@
 extends Node2D
 
-var velocity = Vector2.ZERO
+var velocity := Vector2.ZERO
+var assigned_mac := ""
 
 signal bounced
 signal missed
-var assigned_mac = ""
+
+var _screen_height: float
+var _paddle_container: Node
+
+@onready var _color_rect: ColorRect = $ColorRect
+
 func _ready():
-	print("Ball ready!")
-	set_process(true) # Behövs inte egentligen på Node2D, men skadar inte
+	_screen_height = get_viewport_rect().size.y
+	_paddle_container = get_parent().get_parent().paddle_container
 
-func set_color(c):
-	$ColorRect.color = c # eller beroende på din Ball-scenstruktur
+func set_color(c: Color):
+	_color_rect.color = c
 
-func _process(delta):
+func _process(delta: float):
 	position += velocity * delta
 
-	# Kolla om bollen är utanför nedre skärmen
-	if position.y > get_viewport().size.y:
-		#print("Ball out of bounds, queue_free()")
-		emit_signal("missed")
-		queue_free() # Missad boll, ta bort
+	if position.y > _screen_height:
+		missed.emit()
+		queue_free()
+		return
 
-	# Kolla kollision mot alla paddlar
-	# OBS: Anpassa path så det funkar med din scenstruktur!
-	for paddle in get_parent().get_parent().paddle_container.get_children():
-		if _intersects_paddle(paddle) and velocity.y > 0 and paddle.assigned_mac == assigned_mac:
+	if velocity.y <= 0:
+		return
+
+	for paddle in _paddle_container.get_children():
+		if paddle.assigned_mac == assigned_mac and _intersects_paddle(paddle):
 			velocity.y = -abs(velocity.y)
-			position.y = paddle.position.y - get_viewport().size.y/2 + 255 # hoppa uppåt direkt
-			emit_signal("bounced")
-			print("Ball bounced on paddle!")
+			position.y = paddle.position.y - _screen_height / 2 + 255
+			bounced.emit()
+			break
 
-# Kollision mellan bollen och en paddle
-func _intersects_paddle(paddle):
-	var my_rect = Rect2(position - Vector2(12, 12), Vector2(24, 24)) # 24x24 är ColorRect-storlek
-	var pad_rect = Rect2(paddle.position - paddle.size/2, paddle.size)
+func _intersects_paddle(paddle) -> bool:
+	var my_rect := Rect2(position - Vector2(12, 12), Vector2(24, 24))
+	var pad_rect := Rect2(paddle.position - paddle.size / 2, paddle.size)
 	return my_rect.intersects(pad_rect)
