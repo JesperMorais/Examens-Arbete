@@ -4,20 +4,16 @@ extends Control
 
 var selected_game_index = -1
 
-var blob_node
-var blob_velocity := Vector2.ZERO
-var blob_speed = 200
-var smooth_velocity := Vector2.ZERO
-@export var pong_scene:PackedScene
-var last_axis_y := {}       # mac → förra vel.x‐värdet
+@export var pong_scene: PackedScene
+var last_axis_y := {}       # mac -> previous y-axis value
 
 var menu_items := [] #kommer innehålla alla menuitems-noder
 var item_positions := [] #Motsvarande globala positioner
 var current_index := {} #mac_adress -> valt index
 
 var blobs := {} # mac -> blob node
+var _last_button_state := {} # mac -> bool (for edge detection)
 var blob_scene := preload("res://Scenes/blob.tscn")
-var draw_scene := preload("res://Scenes/draw.tscn")
 
 
 func _ready() -> void:
@@ -41,14 +37,6 @@ func _process(_delta: float) -> void:
 func _on_game_list_item_selected(index: int) -> void:
 	selected_game_index = index
 	print("Picked index:",index)
-
-#Håller koll på vad som är vad i joystick datan
-const DIRS = {
-	Vector2(1,0): "Höger",
-	Vector2(-1,0): "vänster",
-	Vector2(0,1): "ner",
-	Vector2(0,-1): "upp"
-}
 
 func _handle_button_press(mac:String) -> void:
 	#print("inside _handle_button_press, is_inside_tree? ", is_inside_tree())
@@ -86,27 +74,6 @@ func _handle_button_press(mac:String) -> void:
 		# (Frivilligt) sätt en visuell markering på just det spelet
 		# t.ex. ändra outline-färg eller gör en blink-animation
 
-func is_valid_mac(mac: String) -> bool:
-	# Must be 17 chars long (XX:XX:XX:XX:XX:XX)
-	if mac.length() != 17:
-		return false
-		
-	# Check format
-	var regex = RegEx.new()
-	regex.compile("^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
-	if !regex.search(mac):
-		return false
-		
-	# Not all zeros
-	if mac == "00:00:00:00:00:00":
-		return false
-		
-	# Not broadcast
-	if mac == "FF:FF:FF:FF:FF:FF":
-		return false
-		
-	return true
-
 func _update_all_blobs() -> void:
 	var mac_map = WebSocketManager.get_active_macs_map()
 	#var player_list_node = get_node("PanelContainer2/VBoxContainer2/VBoxContainer/playerList")
@@ -114,36 +81,34 @@ func _update_all_blobs() -> void:
 		var data = WebSocketManager.get_blob_data(mac)
 		if data.is_empty():
 			continue
-		
-		#extrahera värden
-		var color_str = mac_map[mac]
-		var color = Color(color_str)
-		var joy_x = data.get("joystick_x", 0.0)
-		var joy_y = -data.get("joystick_y", 0.0)
-		var velocity = Vector2(joy_x, joy_y)
-		var pressed = data.get("button_state", false)
-		
-		#se till all blobs existerar
+
+		var joy_x: float = data.get("joystick_x", 0.0)
+		var joy_y: float = -data.get("joystick_y", 0.0)
+		var vel := Vector2(joy_x, joy_y)
+
 		if not blobs.has(mac):
 			var b = blob_scene.instantiate()
 			add_child(b)
 			b.position = get_viewport_rect().size / 2
-			b.color = color
+			b.color = Color(mac_map[mac])
 			b.mac = mac
 			blobs[mac] = b
 			current_index[mac] = 0
 			last_axis_y[mac] = 0.0
-		#uppdatera blob-rörelse
-		var blob = blobs[mac]
-		blob.set_velocity(velocity)
-		_navigate_menu(mac, velocity)
-		
-		if pressed:
+
+		blobs[mac].set_velocity(vel)
+		_navigate_menu(mac, vel)
+
+		var pressed: bool = data.get("button_state", false)
+		var was_pressed: bool = _last_button_state.get(mac, false)
+		_last_button_state[mac] = pressed
+		if pressed and not was_pressed:
 			_handle_button_press(mac)
 	
+const MENU_NAV_THRESHOLD := 0.6
+
 func _navigate_menu(mac:String, vel:Vector2) -> void:
-	var axis = vel.y
-	var thr = 0.6   # justera 0.4–0.8 för mer/mindre känslighet
+	var axis := vel.y
 
 	# 1) Initiera vid behov
 	if not current_index.has(mac):
@@ -154,9 +119,9 @@ func _navigate_menu(mac:String, vel:Vector2) -> void:
 	var new_idx = idx
 
 	# 2) Debounce på Y-axeln
-	if axis > thr and prev <= thr:
+	if axis > MENU_NAV_THRESHOLD and prev <= MENU_NAV_THRESHOLD:
 		new_idx = min(idx + 1, menu_items.size() - 1)
-	elif axis < -thr and prev >= -thr:
+	elif axis < -MENU_NAV_THRESHOLD and prev >= -MENU_NAV_THRESHOLD:
 		new_idx = max(idx - 1, 0)
 
 	last_axis_y[mac] = axis
@@ -170,11 +135,6 @@ func _navigate_menu(mac:String, vel:Vector2) -> void:
 			  [mac, new_idx, menu_items[new_idx].name])
 		
 func _update_outline(mac:String, idx:int) -> void:
-	#nolla alla
 	for item in menu_items:
-		if item.has_method("set_outline"):
-			item.set_outline(Color(0,0,0,0))
-	
-	var chosen = menu_items[idx]
-	if chosen.has_method("set_outline"):
-		chosen.set_outline(blobs[mac].color)
+		item.set_outline(Color.TRANSPARENT)
+	menu_items[idx].set_outline(blobs[mac].color)
